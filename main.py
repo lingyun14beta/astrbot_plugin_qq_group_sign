@@ -181,7 +181,7 @@ class QQGroupSignPlugin(Star):
             
             # 使用 AstrBot 标准的会话标识符格式
             # 根据 AstrBot 文档，正确的格式应该是 "platform_name:GROUP:group_id"
-            session_str = f"{self.platform_name or 'aiocqhttp'}:GROUP:{group_id}"
+            session_str = f"{self.platform_name or 'aiocqhttp'}:group:{group_id}"
             await self.context.send_message(session_str, message_chain)
             
             logger.info(f"群 {group_id} 打卡成功 (回退模式)")
@@ -220,7 +220,7 @@ class QQGroupSignPlugin(Star):
 
             # 回退方法：使用 context.send_message
             # 使用正确的 AstrBot 会话标识符格式
-            session_str = f"{self.platform_name or 'aiocqhttp'}:GROUP:{admin_group_id}"
+            session_str = f"{self.platform_name or 'aiocqhttp'}:group:{admin_group_id}"
             await self.context.send_message(session_str, [Plain(notification_msg)])
             logger.info(f"管理员通知已通过 context.send_message 发送至群 {admin_group_id}")
 
