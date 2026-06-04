@@ -170,36 +170,22 @@ class QQGroupSignPlugin(Star):
         return datetime.now(self.timezone)
 
     async def _perform_group_sign(self, group_id: Union[str, int]) -> dict:
-        """执行群打卡"""
+        """执行群打卡 - 直接调用签到 API，不发文本消息"""
         try:
-            # 优先使用 NapCat 专用签到 API (如果已捕获 bot 实例)
-            if self.bot_instance:
-                try:
-                    result = await self.bot_instance.api.call_action(
-                        "set_group_sign", group_id=int(group_id)
-                    )
-                    logger.info(f"群 {group_id} 打卡成功，使用 NapCat 专用签到 API")
-                    return {"success": True, "message": "打卡成功", "result": result}
-                except Exception as api_error:
-                    logger.warning(
-                        f"NapCat 专用签到 API 调用失败: {api_error}，使用回退方法"
-                    )
+            if not self.bot_instance:
+                return {"success": False, "message": "bot 实例未捕获"}
 
-            # 回退方法：发送普通消息
-            sign_message = self.config.get("sign_message", "打卡成功！")
-            message_chain = [Plain(sign_message)]
+            await self.bot_instance.api.call_action(
+                "send_group_sign",
+                group_id=int(group_id),
+            )
 
-            # 使用 AstrBot 标准的会话标识符格式
-            # 根据 AstrBot 文档，正确的格式应该是 "platform_name:GROUP:group_id"
-            session_str = f"{self.platform_name or 'aiocqhttp'}:GroupMessage:{group_id}"
-            await self.context.send_message(session_str, message_chain)
-
-            logger.info(f"群 {group_id} 打卡成功 (回退模式)")
-            return {"success": True, "message": "打卡成功"}
+            logger.info(f"群 {group_id} 打卡完成")
+            return {"success": True, "message": "打卡完成"}
 
         except Exception as e:
-            error_msg = f"群 {group_id} 打卡失败: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            error_msg = f"{str(e)}"
+            logger.error(f"群 {group_id} 打卡失败: {error_msg}")
             return {"success": False, "message": error_msg}
 
     async def _notify_admin(self, message: str):
@@ -240,12 +226,24 @@ class QQGroupSignPlugin(Star):
             logger.error(f"通知管理员失败: {e}")
 
     async def _sign_target_groups(self, group_list: List[str]) -> str:
-        """打卡指定群组列表"""
+        """打卡指定群组列表（逐个处理，避免并发卡死）"""
         if not group_list:
             return "❌ 没有可打卡的群组"
 
-        tasks = [self._perform_group_sign(group_id) for group_id in group_list]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = []
+        for group_id in group_list:
+            try:
+                result = await asyncio.wait_for(
+                    self._perform_group_sign(group_id), timeout=10
+                )
+                results.append(result)
+            except asyncio.TimeoutError:
+                logger.error(f"群 {group_id} 打卡超时")
+                results.append({"success": False, "message": "超时"})
+            except Exception as e:
+                logger.error(f"群 {group_id} 打卡异常: {e}")
+                results.append({"success": False, "message": str(e)})
+            await asyncio.sleep(0.3)  # 避免消息风暴
 
         # 统计结果
         success_count = 0
@@ -256,22 +254,22 @@ class QQGroupSignPlugin(Star):
         for group_id, result in zip(group_list, results):
             # 处理异常情况
             if isinstance(result, Exception):
-                status = f"❌ 失败: {str(result)}"
+                status = "fail"
                 fail_count += 1
                 logger.error(f"群 {group_id} 打卡异常: {str(result)}", exc_info=True)
             elif isinstance(result, dict):
                 if result.get("success", False):
-                    status = "✅ 成功"
+                    status = "ok"
                     success_count += 1
                 else:
-                    status = f"❌ 失败: {result.get('message', '未知错误')}"
+                    status = "fail"
                     fail_count += 1
             else:
-                status = "❌ 失败: 返回结果异常"
+                status = "fail"
                 fail_count += 1
 
-            messages.append(f"群 {group_id} 打卡{status}")
-
+            if status == "fail":
+                messages.append(f"群 {group_id} ❌ {result.get('message', '')}" if isinstance(result, dict) else f"群 {group_id} ❌")
         # 更新统计信息
         self.sign_statistics["total_signs"] += len(group_list)
         self.sign_statistics["success_count"] += success_count
@@ -403,7 +401,7 @@ class QQGroupSignPlugin(Star):
                 )
         # 这是一个后台捕获任务，不需要返回任何消息
 
-    @filter.command("打卡", alias=["群打卡"])
+    @filter.command("打卡")
     async def group_sign(self, event: AstrMessageEvent):
         """在当前群聊执行打卡"""
         await self._initialized.wait()
@@ -442,13 +440,12 @@ class QQGroupSignPlugin(Star):
             logger.error(error_msg, exc_info=True)
             yield event.chain_result([Plain(error_msg)])
 
-    @filter.command("全群打卡", alias=["打卡所有群"])
+    @filter.regex(r".*全群打卡.*")
     async def sign_all_groups(self, event: AstrMessageEvent):
         """打卡所有群聊"""
         await self._initialized.wait()
         try:
-            # 获取所有群聊列表
-            target_groups = await self._get_all_groups()
+            target_groups = await asyncio.wait_for(self._get_all_groups(), timeout=15)
             if not target_groups:
                 # 如果无法获取所有群聊，使用白名单群组
                 target_groups = self.whitelist_groups
