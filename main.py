@@ -6,19 +6,12 @@ import asyncio
 import os
 from typing import List, Optional, Union, Dict, Any
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, StarTools, register
+from astrbot.api.star import Context, Star, StarTools
 from astrbot.api.message_components import Plain
 from astrbot.api import logger
 from astrbot.api import AstrBotConfig
 
 
-@register(
-    "qq_group_sign",
-    "EraAsh",
-    "QQ群打卡插件，支持自动定时打卡、白名单模式、管理员通知等功能",
-    "2.1.0",
-    "https://github.com/EraAsh/astrbot_plugin_qq_group_sign",
-)
 class QQGroupSignPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
