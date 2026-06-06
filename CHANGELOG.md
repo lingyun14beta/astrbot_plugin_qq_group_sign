@@ -1,4 +1,4 @@
-## v2.1.1
+## v2.2.1
 
 ### Bug Fixes
 - 修复 `_conf_schema.json` 中 JSON 尾随逗号导致插件无法载入的问题
